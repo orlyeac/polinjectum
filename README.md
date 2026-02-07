@@ -221,7 +221,9 @@ For a more declarative style, polinjectum provides two decorators.
 
 ### `@injectable`
 
-Registers a class with the container at decoration time. Can be used bare or with arguments:
+Registers a class or factory function with the container at decoration time. Can be used bare or with arguments.
+
+**On classes** — the class is registered as both the interface and the factory:
 
 ```python
 from polinjectum import injectable, Lifecycle
@@ -238,7 +240,73 @@ class RedisCache(Cache):
         return f"redis:{key}"
 ```
 
-The class itself is not modified. `@injectable` simply calls `container.meet(...)` behind the scenes and returns the original class.
+**On functions** — the function is used as a factory, registered under its **return type annotation**. This is useful when the object needs extra parameters, custom construction logic, or when you want to register an interface with a concrete implementation built by hand:
+
+```python
+from polinjectum import injectable
+
+class DatabaseConnection:
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+
+# The return annotation -> DatabaseConnection becomes the registered interface
+@injectable
+def create_database() -> DatabaseConnection:
+    return DatabaseConnection("localhost", 5432)
+
+container = PolInjectumContainer()
+db = container.get_me(DatabaseConnection)
+print(db.host)  # "localhost"
+print(db.port)  # 5432
+```
+
+Factory functions are auto-wired too — typed parameters in the factory's signature are resolved from the container, while extra parameters are supplied manually inside the function body:
+
+```python
+from polinjectum import injectable
+
+@injectable
+class Logger:
+    def log(self, msg: str) -> None:
+        print(msg)
+
+class NotificationService:
+    def __init__(self, logger: Logger, sender_email: str):
+        self.logger = logger
+        self.sender_email = sender_email
+
+# logger is auto-wired from the container; sender_email is provided manually
+@injectable
+def create_notification_service(logger: Logger) -> NotificationService:
+    return NotificationService(logger, sender_email="noreply@example.com")
+```
+
+You can also use `interface` and `qualifier` on function factories to register under an abstract type:
+
+```python
+from abc import ABC, abstractmethod
+from polinjectum import injectable
+
+class Sender(ABC):
+    @abstractmethod
+    def send(self, to: str, body: str) -> None: ...
+
+class SmtpSender(Sender):
+    def __init__(self, host: str):
+        self.host = host
+
+    def send(self, to: str, body: str) -> None:
+        print(f"SMTP via {self.host}: {to} <- {body}")
+
+@injectable(interface=Sender, qualifier="email")
+def create_smtp_sender() -> SmtpSender:
+    return SmtpSender("mail.example.com")
+```
+
+If a function has no return annotation and no explicit `interface`, a `RegistrationError` is raised.
+
+The decorated target (class or function) is never modified — `@injectable` simply calls `container.meet(...)` behind the scenes and returns the original object.
 
 ### `@inject`
 
@@ -643,8 +711,9 @@ The key insight: **factory functions are auto-wired too**. Any typed parameter i
 
 | Decorator                                        | Description                                           |
 |--------------------------------------------------|-------------------------------------------------------|
-| `@injectable`                                    | Register class under itself as singleton               |
-| `@injectable(interface=T, qualifier=Q, lifecycle=L)` | Register class with specific options              |
+| `@injectable` *(on class)*                       | Register class under itself as singleton               |
+| `@injectable` *(on function)*                    | Register function as factory under its return type     |
+| `@injectable(interface=T, qualifier=Q, lifecycle=L)` | Register with specific options (classes or functions) |
 | `@inject`                                        | Auto-resolve missing typed args at call time           |
 
 ### Exceptions
