@@ -39,7 +39,6 @@ class Qualifier:
 
 T = TypeVar("T")
 
-# Registry value: (factory_function, lifecycle, cached_instance_or_None)
 _RegistryEntry = Tuple[Callable[..., Any], Lifecycle, Optional[Any]]
 
 
@@ -67,8 +66,6 @@ class PolInjectumContainer:
                 instance._registry: Dict[Tuple[type, Optional[str]], _RegistryEntry] = {}
                 cls._instance = instance
             return cls._instance
-
-    # -- registration --------------------------------------------------------
 
     def meet(
         self,
@@ -106,8 +103,6 @@ class PolInjectumContainer:
 
         key = (interface, qualifier)
         self._registry[key] = (factory_function, lifecycle, None)
-
-    # -- resolution ----------------------------------------------------------
 
     def get_me(
         self,
@@ -193,8 +188,6 @@ class PolInjectumContainer:
                 results.append(self.get_me(interface, qualifier))
         return results
 
-    # -- auto-wiring ---------------------------------------------------------
-
     def _create_instance(
         self,
         factory: Callable[..., Any],
@@ -255,8 +248,6 @@ class PolInjectumContainer:
                     return base_type, extra.name
             return base_type, None
         return annotation, None
-
-    # -- testing helpers -----------------------------------------------------
 
     @classmethod
     def reset(cls) -> None:

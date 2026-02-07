@@ -98,7 +98,6 @@ def injectable(
             reg_interface = interface if interface is not None else inner
             factory = inner
         else:
-            # Function or method — use return annotation as interface
             if interface is not None:
                 reg_interface = interface
             else:
