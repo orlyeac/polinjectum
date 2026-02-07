@@ -349,6 +349,117 @@ class TestQualifierClass(unittest.TestCase):
         self.assertEqual(len(s), 2)
 
 
+class TestCircularDependency(unittest.TestCase):
+    def setUp(self) -> None:
+        PolInjectumContainer.reset()
+        self.container = PolInjectumContainer()
+
+    def tearDown(self) -> None:
+        PolInjectumContainer.reset()
+
+    def test_direct_cycle(self) -> None:
+        class B:
+            pass
+
+        class A:
+            def __init__(self, b: B) -> None:
+                self.b = b
+
+        def b_init(self, a: A) -> None:
+            self.a = a
+        B.__init__ = b_init
+
+        self.container.meet(A)
+        self.container.meet(B)
+        with self.assertRaises(ResolutionError) as ctx:
+            self.container.get_me(A)
+        self.assertIn("Circular dependency", str(ctx.exception))
+
+    def test_self_dependency(self) -> None:
+        class Ouroboros:
+            pass
+
+        def ouro_init(self, me: Ouroboros) -> None:
+            self.me = me
+        Ouroboros.__init__ = ouro_init
+
+        self.container.meet(Ouroboros)
+        with self.assertRaises(ResolutionError) as ctx:
+            self.container.get_me(Ouroboros)
+        self.assertIn("Circular dependency", str(ctx.exception))
+        self.assertIn("Ouroboros", str(ctx.exception))
+
+    def test_transitive_cycle(self) -> None:
+        class X:
+            pass
+
+        class Y:
+            pass
+
+        class Z:
+            def __init__(self, x: X) -> None:
+                self.x = x
+
+        def x_init(self, y: Y) -> None:
+            self.y = y
+        X.__init__ = x_init
+
+        def y_init(self, z: Z) -> None:
+            self.z = z
+        Y.__init__ = y_init
+
+        self.container.meet(X)
+        self.container.meet(Y)
+        self.container.meet(Z)
+        with self.assertRaises(ResolutionError) as ctx:
+            self.container.get_me(X)
+        self.assertIn("Circular dependency", str(ctx.exception))
+
+    def test_error_message_shows_chain(self) -> None:
+        class Q:
+            pass
+
+        class P:
+            def __init__(self, q: Q) -> None:
+                self.q = q
+
+        def q_init(self, p: P) -> None:
+            self.p = p
+        Q.__init__ = q_init
+
+        self.container.meet(P)
+        self.container.meet(Q)
+        with self.assertRaises(ResolutionError) as ctx:
+            self.container.get_me(P)
+        self.assertIn("P", str(ctx.exception))
+        self.assertIn("Q", str(ctx.exception))
+
+    def test_no_false_positive_for_shared_dependency(self) -> None:
+        class Shared:
+            pass
+
+        class ConsumerA:
+            def __init__(self, s: Shared) -> None:
+                self.s = s
+
+        class ConsumerB:
+            def __init__(self, s: Shared) -> None:
+                self.s = s
+
+        class Root:
+            def __init__(self, a: ConsumerA, b: ConsumerB) -> None:
+                self.a = a
+                self.b = b
+
+        self.container.meet(Shared)
+        self.container.meet(ConsumerA)
+        self.container.meet(ConsumerB)
+        self.container.meet(Root)
+        root = self.container.get_me(Root)
+        self.assertIsInstance(root.a.s, Shared)
+        self.assertIsInstance(root.b.s, Shared)
+
+
 class TestReset(unittest.TestCase):
     def setUp(self) -> None:
         PolInjectumContainer.reset()

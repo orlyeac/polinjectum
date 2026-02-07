@@ -116,6 +116,7 @@ class PolInjectumContainer:
         base: type,
         qualifier: Optional[str] = None,
         _chain: Optional[List[str]] = None,
+        _getting: Optional[frozenset] = None,
     ) -> Any:
         """Resolve a dependency from the container.
 
@@ -146,6 +147,8 @@ class PolInjectumContainer:
         """
         if _chain is None:
             _chain = []
+        if _getting is None:
+            _getting = frozenset()
 
         key = (base, qualifier)
         entry = self._registry.get(key)
@@ -155,7 +158,7 @@ class PolInjectumContainer:
                     (q, e) for (b, q), e in self._registry.items() if b is base
                 ]
                 if len(alternatives) == 1:
-                    return self.get_me(base, qualifier=alternatives[0][0], _chain=_chain)
+                    return self.get_me(base, qualifier=alternatives[0][0], _chain=_chain, _getting=_getting)
                 elif len(alternatives) > 1:
                     qualifiers = sorted(q for q, _ in alternatives)
                     label = base.__name__
@@ -179,7 +182,16 @@ class PolInjectumContainer:
         if lifecycle is Lifecycle.SINGLETON and cached is not None:
             return cached
 
-        instance = self._create_instance(factory, _chain)
+        if key in _getting:
+            label = base.__name__
+            if qualifier:
+                label = f"{label}[{qualifier}]"
+            raise ResolutionError(
+                f"Circular dependency detected for {label}",
+                chain=_chain + [label],
+            )
+
+        instance = self._create_instance(factory, _chain, _getting | {key})
 
         if lifecycle is Lifecycle.SINGLETON:
             self._registry[key] = (factory, lifecycle, instance)
@@ -215,6 +227,7 @@ class PolInjectumContainer:
         self,
         factory: Callable[..., Any],
         chain: List[str],
+        getting: frozenset,
     ) -> Any:
         """Create an instance using *factory*, auto-wiring dependencies.
 
@@ -245,8 +258,10 @@ class PolInjectumContainer:
             new_chain = chain + [label]
 
             try:
-                kwargs[name] = self.get_me(dep_type, qualifier=dep_qualifier, _chain=new_chain)
-            except ResolutionError:
+                kwargs[name] = self.get_me(dep_type, qualifier=dep_qualifier, _chain=new_chain, _getting=getting)
+            except ResolutionError as e:
+                if "Circular dependency" in str(e):
+                    raise
                 raise ResolutionError(
                     f"Cannot auto-wire parameter '{name}' of type {label}",
                     chain=new_chain,
