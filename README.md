@@ -189,6 +189,73 @@ redis = container.get_me(Cache, qualifier="redis")    # RedisCache instance
 memory = container.get_me(Cache, qualifier="memory")  # MemoryCache instance
 ```
 
+#### Inline qualifiers with `Annotated` and `Qualifier`
+
+When a class depends on a *qualified* registration, use `typing.Annotated` with the `Qualifier` marker in the constructor's type hints. The container picks up the qualifier during auto-wiring — no manual resolution needed:
+
+```python
+from typing import Annotated
+from polinjectum import PolInjectumContainer, Qualifier
+
+class Cache:
+    def __init__(self, backend: str):
+        self.backend = backend
+
+container = PolInjectumContainer()
+container.meet(Cache, qualifier="redis", factory_function=lambda: Cache("redis"))
+container.meet(Cache, qualifier="memory", factory_function=lambda: Cache("memory"))
+
+class ProductService:
+    def __init__(self, cache: Annotated[Cache, Qualifier("redis")]) -> None:
+        self.cache = cache
+
+container.meet(ProductService)
+service = container.get_me(ProductService)
+print(service.cache.backend)  # "redis"
+```
+
+You can mix plain and qualified parameters freely:
+
+```python
+from typing import Annotated
+from polinjectum import PolInjectumContainer, Qualifier, injectable
+
+@injectable
+class Database:
+    pass
+
+class Logger:
+    def __init__(self, name: str):
+        self.name = name
+
+container = PolInjectumContainer()
+container.meet(Logger, qualifier="file", factory_function=lambda: Logger("file"))
+container.meet(Logger, qualifier="console", factory_function=lambda: Logger("console"))
+
+class AppService:
+    def __init__(
+        self,
+        db: Database,                                        # plain auto-wiring
+        file_log: Annotated[Logger, Qualifier("file")],      # qualified
+        console_log: Annotated[Logger, Qualifier("console")], # qualified
+    ) -> None:
+        self.db = db
+        self.file_log = file_log
+        self.console_log = console_log
+
+container.meet(AppService)
+app = container.get_me(AppService)
+print(app.file_log.name)     # "file"
+print(app.console_log.name)  # "console"
+```
+
+If the qualified registration is missing, the error message includes the qualifier:
+
+```
+ResolutionError: Cannot auto-wire parameter 'cache' of type Cache[redis]
+  (resolution chain: Cache[redis])
+```
+
 ### Factory Functions
 
 You don't have to register classes directly. Any callable works — lambdas, functions, classmethods:
@@ -706,6 +773,12 @@ The key insight: **factory functions are auto-wired too**. Any typed parameter i
 |--------------|---------------------------------|
 | `SINGLETON`  | Same instance always (default)  |
 | `TRANSIENT`  | New instance each time          |
+
+### `Qualifier`
+
+| Usage                                            | Description                                           |
+|--------------------------------------------------|-------------------------------------------------------|
+| `Annotated[MyType, Qualifier("name")]`           | Inline qualifier for auto-wired constructor parameters |
 
 ### Decorators
 
