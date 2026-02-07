@@ -2,15 +2,7 @@
 
 import inspect
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, get_args, get_origin
-
-try:
-    from typing import Annotated
-except ImportError:
-    try:
-        from typing_extensions import Annotated  # type: ignore[assignment]
-    except ImportError:
-        Annotated = None  # type: ignore[assignment,misc]
+from typing import Annotated, Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, get_args, get_origin
 
 from polinjectum.exceptions import RegistrationError, ResolutionError
 from polinjectum.lifecycle import Lifecycle
@@ -255,7 +247,7 @@ class PolInjectumContainer:
         If the annotation is ``Annotated[T, Qualifier("x")]``, returns
         ``(T, "x")``.  Otherwise returns ``(annotation, None)``.
         """
-        if Annotated is not None and get_origin(annotation) is Annotated:
+        if get_origin(annotation) is Annotated:
             args = get_args(annotation)
             base_type = args[0]
             for extra in args[1:]:
