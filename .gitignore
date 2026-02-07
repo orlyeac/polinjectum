@@ -1,0 +1,10 @@
+.idea/
+.venv/
+*.iml
+.coverage
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+CLAUDE.md
