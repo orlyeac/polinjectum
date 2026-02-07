@@ -73,17 +73,17 @@ assert container_a is container_b
 `meet` tells the container: "when someone asks for *this type*, use *this factory* to create it."
 
 ```python
-container.meet(interface, qualifier, factory_function, lifecycle)
+container.meet(base, qualifier, factory_function, lifecycle)
 ```
 
 | Parameter          | Type                | Default                | Description                                         |
 |--------------------|---------------------|------------------------|-----------------------------------------------------|
-| `interface`        | `type`              | *(required)*           | The type to register under                          |
+| `base`             | `type`              | *(required)*           | The type to register under                          |
 | `qualifier`        | `str \| None`       | `None`                 | Distinguishes multiple implementations of same type |
-| `factory_function` | `Callable \| None`  | `None` (uses interface)| The callable that produces the instance              |
+| `factory_function` | `Callable \| None`  | `None` (uses base)     | The callable that produces the instance              |
 | `lifecycle`        | `Lifecycle`         | `Lifecycle.SINGLETON`  | `SINGLETON` or `TRANSIENT`                          |
 
-If you omit `factory_function`, the `interface` itself is used as the factory. This works naturally when the interface is a concrete class:
+If you omit `factory_function`, `base` itself is used as the factory. This works naturally when the base is a concrete class:
 
 ```python
 container.meet(MyService)  # equivalent to container.meet(MyService, factory_function=MyService)
@@ -102,7 +102,7 @@ If the type isn't registered, a `ResolutionError` is raised with a clear message
 
 ### Resolution with `get_me_list`
 
-`get_me_list` retrieves **all** registered implementations for a given interface, across all qualifiers:
+`get_me_list` retrieves **all** registered implementations for a given base type, across all qualifiers:
 
 ```python
 container.meet(Logger, qualifier="file", factory_function=FileLogger)
@@ -165,7 +165,7 @@ Auto-wiring rules:
 
 ### Qualifiers
 
-When you have multiple implementations of the same interface, qualifiers let you distinguish between them:
+When you have multiple implementations of the same base type, qualifiers let you distinguish between them:
 
 ```python
 from abc import ABC, abstractmethod
@@ -290,7 +290,7 @@ For a more declarative style, polinjectum provides two decorators.
 
 Registers a class or factory function with the container at decoration time. Can be used bare or with arguments.
 
-**On classes** — the class is registered as both the interface and the factory:
+**On classes** — the class is registered as both the base and the factory:
 
 ```python
 from polinjectum import injectable, Lifecycle
@@ -300,14 +300,14 @@ from polinjectum import injectable, Lifecycle
 class MyService:
     pass
 
-# With arguments — registers under a specific interface, qualifier, or lifecycle
-@injectable(interface=Cache, qualifier="redis", lifecycle=Lifecycle.TRANSIENT)
+# With arguments — registers under a specific base type, qualifier, or lifecycle
+@injectable(base=Cache, qualifier="redis", lifecycle=Lifecycle.TRANSIENT)
 class RedisCache(Cache):
     def get(self, key: str) -> str:
         return f"redis:{key}"
 ```
 
-**On functions** — the function is used as a factory, registered under its **return type annotation**. This is useful when the object needs extra parameters, custom construction logic, or when you want to register an interface with a concrete implementation built by hand:
+**On functions** — the function is used as a factory, registered under its **return type annotation**. This is useful when the object needs extra parameters, custom construction logic, or when you want to register a base type with a concrete implementation built by hand:
 
 ```python
 from polinjectum import injectable
@@ -317,7 +317,7 @@ class DatabaseConnection:
         self.host = host
         self.port = port
 
-# The return annotation -> DatabaseConnection becomes the registered interface
+# The return annotation -> DatabaseConnection becomes the registered base type
 @injectable
 def create_database() -> DatabaseConnection:
     return DatabaseConnection("localhost", 5432)
@@ -349,7 +349,7 @@ def create_notification_service(logger: Logger) -> NotificationService:
     return NotificationService(logger, sender_email="noreply@example.com")
 ```
 
-You can also use `interface` and `qualifier` on function factories to register under an abstract type:
+You can also use `base` and `qualifier` on function factories to register under an abstract type:
 
 ```python
 from abc import ABC, abstractmethod
@@ -366,12 +366,12 @@ class SmtpSender(Sender):
     def send(self, to: str, body: str) -> None:
         print(f"SMTP via {self.host}: {to} <- {body}")
 
-@injectable(interface=Sender, qualifier="email")
+@injectable(base=Sender, qualifier="email")
 def create_smtp_sender() -> SmtpSender:
     return SmtpSender("mail.example.com")
 ```
 
-If a function has no return annotation and no explicit `interface`, a `RegistrationError` is raised.
+If a function has no return annotation and no explicit `base`, a `RegistrationError` is raised.
 
 The decorated target (class or function) is never modified — `@injectable` simply calls `container.meet(...)` behind the scenes and returns the original object.
 
@@ -499,9 +499,9 @@ print(controller.handle_list_request())
 # {"users": [{"id": 1, "name": "Alice"}]}
 ```
 
-### Interface Segregation with Abstract Base Classes
+### Abstract Base Classes
 
-Program against interfaces, register concrete implementations:
+Program against base types, register concrete implementations:
 
 ```python
 from abc import ABC, abstractmethod
@@ -762,9 +762,9 @@ The key insight: **factory functions are auto-wired too**. Any typed parameter i
 
 | Method                                          | Description                              |
 |-------------------------------------------------|------------------------------------------|
-| `meet(interface, qualifier?, factory_function?, lifecycle?)` | Register a dependency                    |
-| `get_me(interface, qualifier?) -> Any`          | Resolve a single dependency              |
-| `get_me_list(interface) -> list`                | Resolve all implementations of a type    |
+| `meet(base, qualifier?, factory_function?, lifecycle?)` | Register a dependency                    |
+| `get_me(base, qualifier?) -> Any`               | Resolve a single dependency              |
+| `get_me_list(base) -> list`                     | Resolve all implementations of a type    |
 | `reset()` *(classmethod)*                       | Clear all registrations (for testing)    |
 
 ### `Lifecycle`
@@ -786,7 +786,7 @@ The key insight: **factory functions are auto-wired too**. Any typed parameter i
 |--------------------------------------------------|-------------------------------------------------------|
 | `@injectable` *(on class)*                       | Register class under itself as singleton               |
 | `@injectable` *(on function)*                    | Register function as factory under its return type     |
-| `@injectable(interface=T, qualifier=Q, lifecycle=L)` | Register with specific options (classes or functions) |
+| `@injectable(base=T, qualifier=Q, lifecycle=L)` | Register with specific options (classes or functions) |
 | `@inject`                                        | Auto-resolve missing typed args at call time           |
 
 ### Exceptions
