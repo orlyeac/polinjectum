@@ -51,12 +51,12 @@ class TestInjectableWithArgs(unittest.TestCase):
     def tearDown(self) -> None:
         PolInjectumContainer.reset()
 
-    def test_registers_under_specified_interface(self) -> None:
+    def test_registers_under_specified_base(self) -> None:
         class Animal(ABC):
             @abstractmethod
             def speak(self) -> str: ...
 
-        @injectable(interface=Animal)
+        @injectable(base=Animal)
         class Dog(Animal):
             def speak(self) -> str:
                 return "woof"
@@ -70,7 +70,7 @@ class TestInjectableWithArgs(unittest.TestCase):
             def __init__(self) -> None:
                 self.name = "base"
 
-        @injectable(interface=Logger, qualifier="file")
+        @injectable(base=Logger, qualifier="file")
         class FileLogger(Logger):
             def __init__(self) -> None:
                 self.name = "file"
@@ -186,7 +186,7 @@ class TestInjectableOnFunction(unittest.TestCase):
         self.assertIsInstance(service.logger, Logger)
         self.assertEqual(service.retries, 3)
 
-    def test_with_explicit_interface(self) -> None:
+    def test_with_explicit_base(self) -> None:
         class Sender(ABC):
             @abstractmethod
             def send(self) -> str: ...
@@ -198,7 +198,7 @@ class TestInjectableOnFunction(unittest.TestCase):
             def send(self) -> str:
                 return f"smtp://{self.host}"
 
-        @injectable(interface=Sender)
+        @injectable(base=Sender)
         def create_sender() -> SmtpSender:
             return SmtpSender("mail.example.com")
 
@@ -211,11 +211,11 @@ class TestInjectableOnFunction(unittest.TestCase):
             def __init__(self, backend: str):
                 self.backend = backend
 
-        @injectable(interface=Cache, qualifier="redis")
+        @injectable(base=Cache, qualifier="redis")
         def create_redis_cache() -> Cache:
             return Cache("redis://localhost:6379")
 
-        @injectable(interface=Cache, qualifier="memory")
+        @injectable(base=Cache, qualifier="memory")
         def create_memory_cache() -> Cache:
             return Cache("memory://")
 
@@ -246,8 +246,8 @@ class TestInjectableOnFunction(unittest.TestCase):
 
         self.assertIn("return type annotation", str(ctx.exception))
 
-    def test_no_return_annotation_with_explicit_interface_ok(self) -> None:
-        @injectable(interface=str)
+    def test_no_return_annotation_with_explicit_base_ok(self) -> None:
+        @injectable(base=str)
         def no_hint_factory():
             return "works"
 

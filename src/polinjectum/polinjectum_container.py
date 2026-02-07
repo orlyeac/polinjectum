@@ -69,7 +69,7 @@ class PolInjectumContainer:
 
     def meet(
         self,
-        interface: type,
+        base: type,
         qualifier: Optional[str] = None,
         factory_function: Optional[Callable[..., Any]] = None,
         lifecycle: Lifecycle = Lifecycle.SINGLETON,
@@ -77,11 +77,11 @@ class PolInjectumContainer:
         """Register a dependency in the container.
 
         Args:
-            interface: The type (or abstract base) this registration satisfies.
+            base: The type (or abstract base class) this registration satisfies.
             qualifier: An optional string to distinguish multiple
-                implementations of the same interface.
+                implementations of the same base type.
             factory_function: A callable that produces the dependency instance.
-                If ``None``, *interface* itself is used as the factory (it must
+                If ``None``, *base* itself is used as the factory (it must
                 be callable).
             lifecycle: ``Lifecycle.SINGLETON`` (default) or
                 ``Lifecycle.TRANSIENT``.
@@ -94,19 +94,19 @@ class PolInjectumContainer:
             >>> container.meet(list, factory_function=list)
         """
         if factory_function is None:
-            factory_function = interface
+            factory_function = base
 
         if not callable(factory_function):
             raise RegistrationError(
                 f"factory_function must be callable, got {type(factory_function).__name__}"
             )
 
-        key = (interface, qualifier)
+        key = (base, qualifier)
         self._registry[key] = (factory_function, lifecycle, None)
 
     def get_me(
         self,
-        interface: type,
+        base: type,
         qualifier: Optional[str] = None,
         _chain: Optional[List[str]] = None,
     ) -> Any:
@@ -121,7 +121,7 @@ class PolInjectumContainer:
         container automatically.
 
         Args:
-            interface: The type to resolve.
+            base: The type to resolve.
             qualifier: Optional qualifier to select a specific registration.
 
         Returns:
@@ -129,7 +129,7 @@ class PolInjectumContainer:
 
         Raises:
             ResolutionError: If no registration is found for the given
-                interface/qualifier combination.
+                base/qualifier combination.
 
         Examples:
             >>> container = PolInjectumContainer()
@@ -140,10 +140,10 @@ class PolInjectumContainer:
         if _chain is None:
             _chain = []
 
-        key = (interface, qualifier)
+        key = (base, qualifier)
         entry = self._registry.get(key)
         if entry is None:
-            label = interface.__name__
+            label = base.__name__
             if qualifier:
                 label = f"{label}[{qualifier}]"
             raise ResolutionError(
@@ -163,14 +163,14 @@ class PolInjectumContainer:
 
         return instance
 
-    def get_me_list(self, interface: type) -> List[Any]:
-        """Resolve all registered implementations for an interface.
+    def get_me_list(self, base: type) -> List[Any]:
+        """Resolve all registered implementations for a base type.
 
         Returns instances for every qualifier (including ``None``) that was
-        registered under *interface*.
+        registered under *base*.
 
         Args:
-            interface: The type whose implementations should be resolved.
+            base: The type whose implementations should be resolved.
 
         Returns:
             A list of resolved instances (may be empty).
@@ -183,9 +183,9 @@ class PolInjectumContainer:
             [1, 2]
         """
         results: List[Any] = []
-        for (reg_interface, qualifier), _ in list(self._registry.items()):
-            if reg_interface is interface:
-                results.append(self.get_me(interface, qualifier))
+        for (reg_base, qualifier), _ in list(self._registry.items()):
+            if reg_base is base:
+                results.append(self.get_me(base, qualifier))
         return results
 
     def _create_instance(

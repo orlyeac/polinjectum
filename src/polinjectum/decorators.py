@@ -25,7 +25,7 @@ def injectable(target: F) -> F: ...
 @overload
 def injectable(
     *,
-    interface: Optional[type] = ...,
+    base: Optional[type] = ...,
     qualifier: Optional[str] = ...,
     lifecycle: Lifecycle = ...,
 ) -> Callable[[Union[T, F]], Union[T, F]]: ...
@@ -34,26 +34,26 @@ def injectable(
 def injectable(
     target: "T | F | None" = None,
     *,
-    interface: Optional[type] = None,
+    base: Optional[type] = None,
     qualifier: Optional[str] = None,
     lifecycle: Lifecycle = Lifecycle.SINGLETON,
 ) -> Any:
     """Register a class or factory function with the container.
 
     Can be used bare (``@injectable``) or with arguments
-    (``@injectable(interface=MyABC, qualifier="primary")``).
+    (``@injectable(base=MyABC, qualifier="primary")``).
 
-    **On a class:** registers the class as both the interface and the factory
-    (unless ``interface`` is specified).
+    **On a class:** registers the class as both the base and the factory
+    (unless ``base`` is specified).
 
     **On a function/method:** uses the function as a factory and registers it
-    under the function's **return type annotation** as the interface (unless
-    ``interface`` is specified). The return annotation is required when no
-    explicit ``interface`` is given.
+    under the function's **return type annotation** as the base (unless
+    ``base`` is specified). The return annotation is required when no
+    explicit ``base`` is given.
 
     Args:
         target: The class or function (supplied automatically when used bare).
-        interface: The type to register under. Defaults to the class itself
+        base: The type to register under. Defaults to the class itself
             (for classes) or the return annotation (for functions).
         qualifier: Optional qualifier string.
         lifecycle: ``Lifecycle.SINGLETON`` (default) or ``Lifecycle.TRANSIENT``.
@@ -63,7 +63,7 @@ def injectable(
 
     Raises:
         RegistrationError: If used on a function without a return annotation
-            and no explicit ``interface`` is provided.
+            and no explicit ``base`` is provided.
 
     Examples:
         On a class:
@@ -95,24 +95,24 @@ def injectable(
         container = PolInjectumContainer()
 
         if inspect.isclass(inner):
-            reg_interface = interface if interface is not None else inner
+            reg_base = base if base is not None else inner
             factory = inner
         else:
-            if interface is not None:
-                reg_interface = interface
+            if base is not None:
+                reg_base = base
             else:
                 hints = getattr(inner, "__annotations__", {})
                 return_type = hints.get("return")
                 if return_type is None:
                     raise RegistrationError(
                         f"@injectable on function '{inner.__name__}' requires a "
-                        f"return type annotation or an explicit 'interface' argument"
+                        f"return type annotation or an explicit 'base' argument"
                     )
-                reg_interface = return_type
+                reg_base = return_type
             factory = inner
 
         container.meet(
-            reg_interface,
+            reg_base,
             qualifier=qualifier,
             factory_function=factory,
             lifecycle=lifecycle,
