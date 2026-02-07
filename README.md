@@ -89,6 +89,13 @@ If you omit `factory_function`, `base` itself is used as the factory. This works
 container.meet(MyService)  # equivalent to container.meet(MyService, factory_function=MyService)
 ```
 
+Each `(base, qualifier)` combination can only be registered once. Attempting to register the same key again raises a `RegistrationError`:
+
+```python
+container.meet(str, qualifier="greeting", factory_function=lambda: "hello")
+container.meet(str, qualifier="greeting", factory_function=lambda: "hi")  # RegistrationError!
+```
+
 ### Resolution with `get_me`
 
 `get_me` retrieves a dependency from the container:
@@ -99,6 +106,21 @@ service = container.get_me(MyService, qualifier="primary")
 ```
 
 If the type isn't registered, a `ResolutionError` is raised with a clear message showing the full dependency chain that led to the failure.
+
+When no qualifier is given and no default `(base, None)` registration exists, the container checks for qualified alternatives:
+- If exactly **one** qualified registration exists, it is returned automatically
+- If **multiple** qualified registrations exist, an ambiguous resolution error is raised, listing the available qualifiers
+
+```python
+container.meet(Cache, qualifier="redis", factory_function=RedisCache)
+
+# Only one qualified registration — resolves it directly
+cache = container.get_me(Cache)  # returns the RedisCache instance
+
+# But if there are multiple:
+container.meet(Cache, qualifier="memory", factory_function=MemoryCache)
+container.get_me(Cache)  # ResolutionError: Ambiguous resolution for Cache
+```
 
 ### Resolution with `get_me_list`
 
@@ -419,10 +441,18 @@ from polinjectum import PolInjectumContainer, RegistrationError
 
 container = PolInjectumContainer()
 
+# Non-callable factory
 try:
     container.meet(str, factory_function=42)  # not callable
 except RegistrationError as e:
     print(e)  # "factory_function must be callable, got int"
+
+# Duplicate registration
+container.meet(str, factory_function=lambda: "first")
+try:
+    container.meet(str, factory_function=lambda: "second")
+except RegistrationError as e:
+    print(e)  # "Duplicate registration for str"
 ```
 
 ### `ResolutionError`
@@ -793,8 +823,8 @@ The key insight: **factory functions are auto-wired too**. Any typed parameter i
 
 | Exception           | Raised When                                  |
 |---------------------|----------------------------------------------|
-| `RegistrationError` | Factory is not callable                      |
-| `ResolutionError`   | Type not registered or auto-wiring fails     |
+| `RegistrationError` | Factory not callable or duplicate registration |
+| `ResolutionError`   | Type not registered, ambiguous resolution, or auto-wiring fails |
 
 ## Contributing
 
