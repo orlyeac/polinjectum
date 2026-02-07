@@ -5,7 +5,7 @@ A simple, transparent, and easy-to-use dependency injection framework for Python
 **polinjectum** gives you inversion of control without the complexity. No XML, no YAML, no classpath scanning, no framework lock-in. Just a Python container that registers callables and resolves them by type — with auto-wiring, lifecycle management, and decorator shortcuts built in.
 
 - Zero external dependencies
-- Python 3.8+
+- Python 3.9+
 - Thread-safe singleton container
 - Under 200 lines of core code
 
