@@ -481,6 +481,17 @@ except ResolutionError as e:
     print(e.chain)  # ["Database"]
 ```
 
+Circular dependencies are detected at resolution time. If A depends on B and B depends on A, the container raises immediately instead of recursing:
+
+```python
+# A -> B -> A creates a cycle
+try:
+    container.get_me(A)
+except ResolutionError as e:
+    print(e)
+    # "Circular dependency detected for A (resolution chain: A -> B -> A)"
+```
+
 ## Advanced Examples
 
 ### Layered Architecture
@@ -824,7 +835,7 @@ The key insight: **factory functions are auto-wired too**. Any typed parameter i
 | Exception           | Raised When                                  |
 |---------------------|----------------------------------------------|
 | `RegistrationError` | Factory not callable or duplicate registration |
-| `ResolutionError`   | Type not registered, ambiguous resolution, or auto-wiring fails |
+| `ResolutionError`   | Type not registered, ambiguous resolution, circular dependency, or auto-wiring fails |
 
 ## Contributing
 
