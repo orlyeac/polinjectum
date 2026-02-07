@@ -447,6 +447,159 @@ host = container.get_me(str, qualifier="db_host")
 port = container.get_me(int, qualifier="db_port")
 ```
 
+### Mixing Auto-Wired Dependencies with Extra Parameters
+
+In real applications, classes often need both registered dependencies *and* configuration values or runtime parameters. The factory function is your tool for bridging the two — it captures the extra arguments while letting the container resolve the rest.
+
+**Default values for configuration, auto-wiring for services:**
+
+The simplest approach. Parameters with defaults are skipped by auto-wiring, so the container resolves the service dependencies and the defaults provide the configuration:
+
+```python
+from polinjectum import PolInjectumContainer
+
+class ConnectionPool:
+    def __init__(self, max_size: int = 10, timeout: float = 30.0):
+        self.max_size = max_size
+        self.timeout = timeout
+
+class UserRepository:
+    def __init__(self, pool: ConnectionPool, table_name: str = "users"):
+        self.pool = pool
+        self.table_name = table_name
+
+container = PolInjectumContainer()
+container.meet(ConnectionPool)
+container.meet(UserRepository)
+
+repo = container.get_me(UserRepository)
+print(repo.pool.max_size)   # 10 (default)
+print(repo.table_name)      # "users" (default)
+```
+
+**Factory functions that override defaults:**
+
+When you need different configuration than the defaults, wrap the constructor in a factory that supplies the extra parameters. The factory itself can receive auto-wired arguments:
+
+```python
+from polinjectum import PolInjectumContainer
+
+class ConnectionPool:
+    def __init__(self, max_size: int = 10, timeout: float = 30.0):
+        self.max_size = max_size
+        self.timeout = timeout
+
+class UserRepository:
+    def __init__(self, pool: ConnectionPool, table_name: str = "users"):
+        self.pool = pool
+        self.table_name = table_name
+
+container = PolInjectumContainer()
+
+# Register the pool with custom config via a factory
+container.meet(ConnectionPool, factory_function=lambda: ConnectionPool(max_size=50, timeout=5.0))
+
+# Register the repo with a factory that takes the auto-wired pool
+# and adds the extra parameter
+def create_user_repo(pool: ConnectionPool) -> UserRepository:
+    return UserRepository(pool, table_name="app_users")
+
+container.meet(UserRepository, factory_function=create_user_repo)
+
+repo = container.get_me(UserRepository)
+print(repo.pool.max_size)   # 50 (custom)
+print(repo.pool.timeout)    # 5.0 (custom)
+print(repo.table_name)      # "app_users" (custom)
+```
+
+Note how `create_user_repo` has a typed `pool` parameter — the container auto-wires it, while `table_name` is supplied directly inside the factory.
+
+**Multiple implementations with different configuration:**
+
+Combine qualifiers with factory functions to register several variants of the same type, each with its own parameters:
+
+```python
+from polinjectum import PolInjectumContainer
+
+class HttpClient:
+    def __init__(self, base_url: str, timeout: float, retries: int):
+        self.base_url = base_url
+        self.timeout = timeout
+        self.retries = retries
+
+    def get(self, path: str) -> str:
+        return f"GET {self.base_url}{path}"
+
+container = PolInjectumContainer()
+
+container.meet(
+    HttpClient,
+    qualifier="payments",
+    factory_function=lambda: HttpClient("https://payments.api.com", timeout=10.0, retries=3),
+)
+container.meet(
+    HttpClient,
+    qualifier="users",
+    factory_function=lambda: HttpClient("https://users.api.com", timeout=5.0, retries=1),
+)
+
+payments_client = container.get_me(HttpClient, qualifier="payments")
+users_client = container.get_me(HttpClient, qualifier="users")
+
+print(payments_client.get("/charge"))  # "GET https://payments.api.com/charge"
+print(users_client.get("/profile"))    # "GET https://users.api.com/profile"
+print(payments_client.retries)         # 3
+print(users_client.retries)            # 1
+```
+
+**Factory functions that combine registered and runtime values:**
+
+A factory can pull some values from the container and combine them with hardcoded or computed values:
+
+```python
+import os
+from polinjectum import PolInjectumContainer
+
+class Logger:
+    def __init__(self, name: str, level: str):
+        self.name = name
+        self.level = level
+
+    def log(self, msg: str) -> None:
+        print(f"[{self.level}] {self.name}: {msg}")
+
+class DatabaseConnection:
+    def __init__(self, host: str, port: int, logger: Logger):
+        self.host = host
+        self.port = port
+        self.logger = logger
+
+    def connect(self) -> str:
+        self.logger.log(f"Connecting to {self.host}:{self.port}")
+        return f"{self.host}:{self.port}"
+
+container = PolInjectumContainer()
+
+# Register the logger with extra parameters via factory
+container.meet(Logger, factory_function=lambda: Logger("app", "INFO"))
+
+# The database factory auto-wires Logger from the container
+# and adds host/port from environment variables
+def create_db_connection(logger: Logger) -> DatabaseConnection:
+    return DatabaseConnection(
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        logger=logger,
+    )
+
+container.meet(DatabaseConnection, factory_function=create_db_connection)
+
+db = container.get_me(DatabaseConnection)
+db.connect()  # [INFO] app: Connecting to localhost:5432
+```
+
+The key insight: **factory functions are auto-wired too**. Any typed parameter in a factory function's signature is resolved from the container, so you get the best of both worlds — automatic injection for registered dependencies and manual control for everything else.
+
 ## Comparison with Other DI Frameworks
 
 | Feature                    | polinjectum         | dependency-injector | inject          | python-inject   |
