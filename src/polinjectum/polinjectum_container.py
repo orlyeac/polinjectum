@@ -2,10 +2,48 @@
 
 import inspect
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, get_args, get_origin
+
+try:
+    from typing import Annotated
+except ImportError:
+    try:
+        from typing_extensions import Annotated  # type: ignore[assignment]
+    except ImportError:
+        Annotated = None  # type: ignore[assignment,misc]
 
 from polinjectum.exceptions import RegistrationError, ResolutionError
 from polinjectum.lifecycle import Lifecycle
+
+
+class Qualifier:
+    """Marker for specifying a qualifier in type annotations.
+
+    Use with ``typing.Annotated`` to indicate which qualified registration
+    should be injected for a constructor parameter during auto-wiring.
+
+    Args:
+        name: The qualifier string matching a ``meet(..., qualifier=name)`` call.
+
+    Examples:
+        >>> from typing import Annotated
+        >>> from polinjectum import Qualifier
+        >>> class MyService:
+        ...     def __init__(self, cache: Annotated[Cache, Qualifier("redis")]):
+        ...         self.cache = cache
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __repr__(self) -> str:
+        return f"Qualifier({self.name!r})"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Qualifier) and self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
 T = TypeVar("T")
 
@@ -174,6 +212,9 @@ class PolInjectumContainer:
 
         Inspects the factory's signature and resolves any parameters whose
         type annotations correspond to registrations in this container.
+
+        Supports ``Annotated[SomeType, Qualifier("name")]`` to resolve
+        qualified dependencies.
         """
         try:
             sig = inspect.signature(factory)
@@ -189,12 +230,14 @@ class PolInjectumContainer:
             if param.default is not inspect.Parameter.empty:
                 continue
 
-            dep_type = param.annotation
+            dep_type, dep_qualifier = self._extract_type_and_qualifier(param.annotation)
             label = getattr(dep_type, "__name__", str(dep_type))
+            if dep_qualifier:
+                label = f"{label}[{dep_qualifier}]"
             new_chain = chain + [label]
 
             try:
-                kwargs[name] = self.get_me(dep_type, _chain=new_chain)
+                kwargs[name] = self.get_me(dep_type, qualifier=dep_qualifier, _chain=new_chain)
             except ResolutionError:
                 raise ResolutionError(
                     f"Cannot auto-wire parameter '{name}' of type {label}",
@@ -202,6 +245,24 @@ class PolInjectumContainer:
                 )
 
         return factory(**kwargs)
+
+    @staticmethod
+    def _extract_type_and_qualifier(
+        annotation: Any,
+    ) -> Tuple[type, Optional[str]]:
+        """Extract base type and optional Qualifier from an annotation.
+
+        If the annotation is ``Annotated[T, Qualifier("x")]``, returns
+        ``(T, "x")``.  Otherwise returns ``(annotation, None)``.
+        """
+        if Annotated is not None and get_origin(annotation) is Annotated:
+            args = get_args(annotation)
+            base_type = args[0]
+            for extra in args[1:]:
+                if isinstance(extra, Qualifier):
+                    return base_type, extra.name
+            return base_type, None
+        return annotation, None
 
     # -- testing helpers -----------------------------------------------------
 

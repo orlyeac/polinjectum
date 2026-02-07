@@ -2,10 +2,11 @@
 
 import unittest
 from abc import ABC, abstractmethod
+from typing import Annotated
 
 from polinjectum.exceptions import RegistrationError, ResolutionError
 from polinjectum.lifecycle import Lifecycle
-from polinjectum.polinjectum_container import PolInjectumContainer
+from polinjectum.polinjectum_container import PolInjectumContainer, Qualifier
 
 
 class TestContainerSingleton(unittest.TestCase):
@@ -176,6 +177,122 @@ class TestAutoWiring(unittest.TestCase):
         self.container.meet(dict, factory_function=lambda x=5: {"x": x})
         result = self.container.get_me(dict)
         self.assertEqual(result, {"x": 5})
+
+
+class TestQualifierAutoWiring(unittest.TestCase):
+    """Auto-wiring with Annotated[Type, Qualifier("name")]."""
+
+    def setUp(self) -> None:
+        PolInjectumContainer.reset()
+        self.container = PolInjectumContainer()
+
+    def tearDown(self) -> None:
+        PolInjectumContainer.reset()
+
+    def test_annotated_qualifier_resolves_correct_registration(self) -> None:
+        class Cache:
+            def __init__(self, backend: str):
+                self.backend = backend
+
+        self.container.meet(Cache, qualifier="redis", factory_function=lambda: Cache("redis"))
+        self.container.meet(Cache, qualifier="memory", factory_function=lambda: Cache("memory"))
+
+        class Service:
+            def __init__(self, cache: Annotated[Cache, Qualifier("redis")]) -> None:
+                self.cache = cache
+
+        self.container.meet(Service)
+        service = self.container.get_me(Service)
+        self.assertEqual(service.cache.backend, "redis")
+
+    def test_annotated_qualifier_different_params_different_qualifiers(self) -> None:
+        class Logger:
+            def __init__(self, name: str):
+                self.name = name
+
+        self.container.meet(Logger, qualifier="file", factory_function=lambda: Logger("file"))
+        self.container.meet(Logger, qualifier="console", factory_function=lambda: Logger("console"))
+
+        class App:
+            def __init__(
+                self,
+                file_log: Annotated[Logger, Qualifier("file")],
+                console_log: Annotated[Logger, Qualifier("console")],
+            ) -> None:
+                self.file_log = file_log
+                self.console_log = console_log
+
+        self.container.meet(App)
+        app = self.container.get_me(App)
+        self.assertEqual(app.file_log.name, "file")
+        self.assertEqual(app.console_log.name, "console")
+
+    def test_annotated_without_qualifier_resolves_default(self) -> None:
+        class Repo:
+            pass
+
+        self.container.meet(Repo)
+
+        class Service:
+            def __init__(self, repo: Annotated[Repo, "some metadata"]) -> None:
+                self.repo = repo
+
+        self.container.meet(Service)
+        service = self.container.get_me(Service)
+        self.assertIsInstance(service.repo, Repo)
+
+    def test_missing_qualified_registration_raises(self) -> None:
+        class Store:
+            pass
+
+        class NeedsStore:
+            def __init__(self, s: Annotated[Store, Qualifier("missing")]) -> None:
+                self.s = s
+
+        self.container.meet(NeedsStore)
+        with self.assertRaises(ResolutionError) as ctx:
+            self.container.get_me(NeedsStore)
+        self.assertIn("Store[missing]", str(ctx.exception))
+
+    def test_mixed_plain_and_annotated_params(self) -> None:
+        class DbConn:
+            pass
+
+        class Cache:
+            def __init__(self, backend: str):
+                self.backend = backend
+
+        self.container.meet(DbConn)
+        self.container.meet(Cache, qualifier="redis", factory_function=lambda: Cache("redis"))
+
+        class Service:
+            def __init__(
+                self,
+                db: DbConn,
+                cache: Annotated[Cache, Qualifier("redis")],
+            ) -> None:
+                self.db = db
+                self.cache = cache
+
+        self.container.meet(Service)
+        service = self.container.get_me(Service)
+        self.assertIsInstance(service.db, DbConn)
+        self.assertEqual(service.cache.backend, "redis")
+
+
+class TestQualifierClass(unittest.TestCase):
+    def test_repr(self) -> None:
+        q = Qualifier("redis")
+        self.assertEqual(repr(q), "Qualifier('redis')")
+
+    def test_equality(self) -> None:
+        self.assertEqual(Qualifier("a"), Qualifier("a"))
+        self.assertNotEqual(Qualifier("a"), Qualifier("b"))
+
+    def test_hash(self) -> None:
+        self.assertEqual(hash(Qualifier("a")), hash(Qualifier("a")))
+        s = {Qualifier("x"), Qualifier("x"), Qualifier("y")}
+        self.assertEqual(len(s), 2)
 
 
 class TestReset(unittest.TestCase):
