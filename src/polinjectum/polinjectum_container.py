@@ -102,6 +102,13 @@ class PolInjectumContainer:
             )
 
         key = (base, qualifier)
+        if key in self._registry:
+            label = base.__name__
+            if qualifier:
+                label = f"{label}[{qualifier}]"
+            raise RegistrationError(
+                f"Duplicate registration for {label}"
+            )
         self._registry[key] = (factory_function, lifecycle, None)
 
     def get_me(
@@ -143,6 +150,22 @@ class PolInjectumContainer:
         key = (base, qualifier)
         entry = self._registry.get(key)
         if entry is None:
+            if qualifier is None:
+                alternatives = [
+                    (q, e) for (b, q), e in self._registry.items() if b is base
+                ]
+                if len(alternatives) == 1:
+                    return self.get_me(base, qualifier=alternatives[0][0], _chain=_chain)
+                elif len(alternatives) > 1:
+                    qualifiers = sorted(q for q, _ in alternatives)
+                    label = base.__name__
+                    raise ResolutionError(
+                        f"Ambiguous resolution for {label}: "
+                        f"multiple qualified registrations exist "
+                        f"({', '.join(repr(q) for q in qualifiers)}). "
+                        f"Specify a qualifier.",
+                        chain=_chain + [label],
+                    )
             label = base.__name__
             if qualifier:
                 label = f"{label}[{qualifier}]"

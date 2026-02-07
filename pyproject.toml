@@ -9,7 +9,7 @@ description = "A lightweight inversion of control through dependency injection f
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-keywords = ["dependency-injection", "di", "ioc", "container"]
+keywords = ["polinjectum", "inversion of control", "container", "dependency injection", "ioc", "di"]
 authors = [
     {name = "Orlando Ernesto Abreu Cruz", email = "orlye.ac@gmail.com"}
 ]

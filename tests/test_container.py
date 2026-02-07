@@ -54,6 +54,60 @@ class TestMeetAndGetMe(unittest.TestCase):
             self.container.meet(str, factory_function=42)  # type: ignore[arg-type]
 
 
+class TestDuplicateRegistration(unittest.TestCase):
+    def setUp(self) -> None:
+        PolInjectumContainer.reset()
+        self.container = PolInjectumContainer()
+
+    def tearDown(self) -> None:
+        PolInjectumContainer.reset()
+
+    def test_duplicate_raises(self) -> None:
+        self.container.meet(str, factory_function=lambda: "first")
+        with self.assertRaises(RegistrationError) as ctx:
+            self.container.meet(str, factory_function=lambda: "second")
+        self.assertIn("Duplicate registration for str", str(ctx.exception))
+
+    def test_duplicate_with_qualifier_raises(self) -> None:
+        self.container.meet(str, qualifier="x", factory_function=lambda: "first")
+        with self.assertRaises(RegistrationError) as ctx:
+            self.container.meet(str, qualifier="x", factory_function=lambda: "second")
+        self.assertIn("str[x]", str(ctx.exception))
+
+    def test_same_base_different_qualifiers_allowed(self) -> None:
+        self.container.meet(str, qualifier="a", factory_function=lambda: "alpha")
+        self.container.meet(str, qualifier="b", factory_function=lambda: "beta")
+        self.assertEqual(self.container.get_me(str, qualifier="a"), "alpha")
+        self.assertEqual(self.container.get_me(str, qualifier="b"), "beta")
+
+
+class TestAmbiguousResolution(unittest.TestCase):
+    def setUp(self) -> None:
+        PolInjectumContainer.reset()
+        self.container = PolInjectumContainer()
+
+    def tearDown(self) -> None:
+        PolInjectumContainer.reset()
+
+    def test_single_qualified_resolves_without_qualifier(self) -> None:
+        self.container.meet(str, qualifier="only", factory_function=lambda: "found")
+        self.assertEqual(self.container.get_me(str), "found")
+
+    def test_multiple_qualified_raises_ambiguous(self) -> None:
+        self.container.meet(str, qualifier="a", factory_function=lambda: "alpha")
+        self.container.meet(str, qualifier="b", factory_function=lambda: "beta")
+        with self.assertRaises(ResolutionError) as ctx:
+            self.container.get_me(str)
+        self.assertIn("Ambiguous resolution for str", str(ctx.exception))
+        self.assertIn("'a'", str(ctx.exception))
+        self.assertIn("'b'", str(ctx.exception))
+
+    def test_default_registration_takes_precedence(self) -> None:
+        self.container.meet(str, factory_function=lambda: "default")
+        self.container.meet(str, qualifier="q", factory_function=lambda: "qualified")
+        self.assertEqual(self.container.get_me(str), "default")
+
+
 class TestQualifiers(unittest.TestCase):
     def setUp(self) -> None:
         PolInjectumContainer.reset()
