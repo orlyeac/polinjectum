@@ -4,6 +4,7 @@ import unittest
 from abc import ABC, abstractmethod
 
 from polinjectum.decorators import inject, injectable
+from polinjectum.exceptions import RegistrationError
 from polinjectum.lifecycle import Lifecycle
 from polinjectum.polinjectum_container import PolInjectumContainer
 
@@ -117,6 +118,152 @@ class TestInjectableAutoWiring(unittest.TestCase):
 
         service = PolInjectumContainer().get_me(Service)
         self.assertIsInstance(service.repo, Repository)
+
+
+class TestInjectableOnFunction(unittest.TestCase):
+    """@injectable used on functions/methods as factory registration."""
+
+    def setUp(self) -> None:
+        PolInjectumContainer.reset()
+
+    def tearDown(self) -> None:
+        PolInjectumContainer.reset()
+
+    def test_registers_under_return_type(self) -> None:
+        class Database:
+            def __init__(self, url: str):
+                self.url = url
+
+        @injectable
+        def create_database() -> Database:
+            return Database("postgresql://localhost/mydb")
+
+        result = PolInjectumContainer().get_me(Database)
+        self.assertIsInstance(result, Database)
+        self.assertEqual(result.url, "postgresql://localhost/mydb")
+
+    def test_returns_original_function(self) -> None:
+        class Svc:
+            pass
+
+        @injectable
+        def create_svc() -> Svc:
+            return Svc()
+
+        self.assertEqual(create_svc.__name__, "create_svc")
+        self.assertTrue(callable(create_svc))
+
+    def test_factory_with_extra_parameters_and_defaults(self) -> None:
+        class HttpClient:
+            def __init__(self, base_url: str, timeout: float):
+                self.base_url = base_url
+                self.timeout = timeout
+
+        @injectable
+        def create_client() -> HttpClient:
+            return HttpClient("https://api.example.com", timeout=30.0)
+
+        client = PolInjectumContainer().get_me(HttpClient)
+        self.assertEqual(client.base_url, "https://api.example.com")
+        self.assertEqual(client.timeout, 30.0)
+
+    def test_factory_with_auto_wired_deps_and_extra_params(self) -> None:
+        @injectable
+        class Logger:
+            def __init__(self) -> None:
+                self.name = "app"
+
+        class Service:
+            def __init__(self, logger: Logger, retries: int):
+                self.logger = logger
+                self.retries = retries
+
+        @injectable
+        def create_service(logger: Logger) -> Service:
+            return Service(logger, retries=3)
+
+        service = PolInjectumContainer().get_me(Service)
+        self.assertIsInstance(service.logger, Logger)
+        self.assertEqual(service.retries, 3)
+
+    def test_with_explicit_interface(self) -> None:
+        class Sender(ABC):
+            @abstractmethod
+            def send(self) -> str: ...
+
+        class SmtpSender(Sender):
+            def __init__(self, host: str):
+                self.host = host
+
+            def send(self) -> str:
+                return f"smtp://{self.host}"
+
+        @injectable(interface=Sender)
+        def create_sender() -> SmtpSender:
+            return SmtpSender("mail.example.com")
+
+        result = PolInjectumContainer().get_me(Sender)
+        self.assertIsInstance(result, SmtpSender)
+        self.assertEqual(result.send(), "smtp://mail.example.com")
+
+    def test_with_qualifier(self) -> None:
+        class Cache:
+            def __init__(self, backend: str):
+                self.backend = backend
+
+        @injectable(interface=Cache, qualifier="redis")
+        def create_redis_cache() -> Cache:
+            return Cache("redis://localhost:6379")
+
+        @injectable(interface=Cache, qualifier="memory")
+        def create_memory_cache() -> Cache:
+            return Cache("memory://")
+
+        container = PolInjectumContainer()
+        redis = container.get_me(Cache, qualifier="redis")
+        memory = container.get_me(Cache, qualifier="memory")
+        self.assertEqual(redis.backend, "redis://localhost:6379")
+        self.assertEqual(memory.backend, "memory://")
+
+    def test_with_transient_lifecycle(self) -> None:
+        class Request:
+            pass
+
+        @injectable(lifecycle=Lifecycle.TRANSIENT)
+        def create_request() -> Request:
+            return Request()
+
+        container = PolInjectumContainer()
+        a = container.get_me(Request)
+        b = container.get_me(Request)
+        self.assertIsNot(a, b)
+
+    def test_no_return_annotation_raises(self) -> None:
+        with self.assertRaises(RegistrationError) as ctx:
+            @injectable
+            def bad_factory():
+                return "oops"
+
+        self.assertIn("return type annotation", str(ctx.exception))
+
+    def test_no_return_annotation_with_explicit_interface_ok(self) -> None:
+        @injectable(interface=str)
+        def no_hint_factory():
+            return "works"
+
+        result = PolInjectumContainer().get_me(str)
+        self.assertEqual(result, "works")
+
+    def test_singleton_is_default_for_functions(self) -> None:
+        class Token:
+            pass
+
+        @injectable
+        def create_token() -> Token:
+            return Token()
+
+        container = PolInjectumContainer()
+        self.assertIs(container.get_me(Token), container.get_me(Token))
 
 
 class TestInject(unittest.TestCase):

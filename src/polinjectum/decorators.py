@@ -5,15 +5,21 @@ These decorators provide cleaner syntax for common DI patterns.
 
 import functools
 import inspect
-from typing import Any, Callable, Optional, Type, TypeVar, overload
+from typing import Any, Callable, Optional, Type, TypeVar, Union, overload
 
+from polinjectum.exceptions import RegistrationError
 from polinjectum.lifecycle import Lifecycle
 
 T = TypeVar("T", bound=type)
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 @overload
-def injectable(cls: T) -> T: ...
+def injectable(target: T) -> T: ...
+
+
+@overload
+def injectable(target: F) -> F: ...
 
 
 @overload
@@ -22,34 +28,46 @@ def injectable(
     interface: Optional[type] = ...,
     qualifier: Optional[str] = ...,
     lifecycle: Lifecycle = ...,
-) -> Callable[[T], T]: ...
+) -> Callable[[Union[T, F]], Union[T, F]]: ...
 
 
 def injectable(
-    cls: Optional[T] = None,
+    target: "T | F | None" = None,
     *,
     interface: Optional[type] = None,
     qualifier: Optional[str] = None,
     lifecycle: Lifecycle = Lifecycle.SINGLETON,
-) -> "T | Callable[[T], T]":
-    """Mark a class as injectable and register it with the container.
+) -> Any:
+    """Register a class or factory function with the container.
 
     Can be used bare (``@injectable``) or with arguments
     (``@injectable(interface=MyABC, qualifier="primary")``).
 
-    When used bare, the class itself is registered as both the interface
-    and the factory.
+    **On a class:** registers the class as both the interface and the factory
+    (unless ``interface`` is specified).
+
+    **On a function/method:** uses the function as a factory and registers it
+    under the function's **return type annotation** as the interface (unless
+    ``interface`` is specified). The return annotation is required when no
+    explicit ``interface`` is given.
 
     Args:
-        cls: The class (supplied automatically when used as ``@injectable``).
-        interface: The type to register under. Defaults to *cls* itself.
+        target: The class or function (supplied automatically when used bare).
+        interface: The type to register under. Defaults to the class itself
+            (for classes) or the return annotation (for functions).
         qualifier: Optional qualifier string.
         lifecycle: ``Lifecycle.SINGLETON`` (default) or ``Lifecycle.TRANSIENT``.
 
     Returns:
-        The class, unmodified (but now registered in the container).
+        The class or function, unmodified (but now registered in the container).
+
+    Raises:
+        RegistrationError: If used on a function without a return annotation
+            and no explicit ``interface`` is provided.
 
     Examples:
+        On a class:
+
         >>> from polinjectum import PolInjectumContainer
         >>> PolInjectumContainer.reset()
         >>> @injectable
@@ -58,24 +76,52 @@ def injectable(
         ...         return "hello"
         >>> PolInjectumContainer().get_me(Greeter).greet()
         'hello'
+
+        On a factory function:
+
+        >>> PolInjectumContainer.reset()
+        >>> class Database:
+        ...     def __init__(self, url: str):
+        ...         self.url = url
+        >>> @injectable
+        ... def create_database() -> Database:
+        ...     return Database("postgresql://localhost/mydb")
+        >>> PolInjectumContainer().get_me(Database).url
+        'postgresql://localhost/mydb'
     """
-    def decorator(cls_inner: T) -> T:
+    def decorator(inner: Any) -> Any:
         from polinjectum.polinjectum_container import PolInjectumContainer
 
         container = PolInjectumContainer()
-        reg_interface = interface if interface is not None else cls_inner
+
+        if inspect.isclass(inner):
+            reg_interface = interface if interface is not None else inner
+            factory = inner
+        else:
+            # Function or method — use return annotation as interface
+            if interface is not None:
+                reg_interface = interface
+            else:
+                hints = getattr(inner, "__annotations__", {})
+                return_type = hints.get("return")
+                if return_type is None:
+                    raise RegistrationError(
+                        f"@injectable on function '{inner.__name__}' requires a "
+                        f"return type annotation or an explicit 'interface' argument"
+                    )
+                reg_interface = return_type
+            factory = inner
+
         container.meet(
             reg_interface,
             qualifier=qualifier,
-            factory_function=cls_inner,
+            factory_function=factory,
             lifecycle=lifecycle,
         )
-        return cls_inner
+        return inner
 
-    if cls is not None:
-        # Used as @injectable without arguments
-        return decorator(cls)
-    # Used as @injectable(...) with arguments
+    if target is not None:
+        return decorator(target)
     return decorator
 
 
