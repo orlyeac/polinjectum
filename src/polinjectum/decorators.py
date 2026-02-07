@@ -1,53 +1,129 @@
 """Decorator helpers for polinjectum.
 
 These decorators provide cleaner syntax for common DI patterns.
-They are stubs for now and will be fully implemented in a later phase.
 """
 
-from typing import Any, Callable, TypeVar
+import functools
+import inspect
+from typing import Any, Callable, Optional, Type, TypeVar, overload
 
-T = TypeVar("T")
+from polinjectum.lifecycle import Lifecycle
+
+T = TypeVar("T", bound=type)
 
 
-def injectable(cls: type) -> type:
-    """Mark a class as injectable.
+@overload
+def injectable(cls: T) -> T: ...
 
-    Currently a pass-through stub — the class is returned unchanged.
-    Future versions will support auto-registration with the container.
+
+@overload
+def injectable(
+    *,
+    interface: Optional[type] = ...,
+    qualifier: Optional[str] = ...,
+    lifecycle: Lifecycle = ...,
+) -> Callable[[T], T]: ...
+
+
+def injectable(
+    cls: Optional[T] = None,
+    *,
+    interface: Optional[type] = None,
+    qualifier: Optional[str] = None,
+    lifecycle: Lifecycle = Lifecycle.SINGLETON,
+) -> "T | Callable[[T], T]":
+    """Mark a class as injectable and register it with the container.
+
+    Can be used bare (``@injectable``) or with arguments
+    (``@injectable(interface=MyABC, qualifier="primary")``).
+
+    When used bare, the class itself is registered as both the interface
+    and the factory.
 
     Args:
-        cls: The class to mark as injectable.
+        cls: The class (supplied automatically when used as ``@injectable``).
+        interface: The type to register under. Defaults to *cls* itself.
+        qualifier: Optional qualifier string.
+        lifecycle: ``Lifecycle.SINGLETON`` (default) or ``Lifecycle.TRANSIENT``.
 
     Returns:
-        The class, unmodified.
+        The class, unmodified (but now registered in the container).
 
     Examples:
+        >>> from polinjectum import PolInjectumContainer
+        >>> PolInjectumContainer.reset()
         >>> @injectable
-        ... class MyService:
-        ...     pass
-        >>> MyService  # doctest: +ELLIPSIS
-        <class '...MyService'>
+        ... class Greeter:
+        ...     def greet(self) -> str:
+        ...         return "hello"
+        >>> PolInjectumContainer().get_me(Greeter).greet()
+        'hello'
     """
-    return cls
+    def decorator(cls_inner: T) -> T:
+        from polinjectum.polinjectum_container import PolInjectumContainer
+
+        container = PolInjectumContainer()
+        reg_interface = interface if interface is not None else cls_inner
+        container.meet(
+            reg_interface,
+            qualifier=qualifier,
+            factory_function=cls_inner,
+            lifecycle=lifecycle,
+        )
+        return cls_inner
+
+    if cls is not None:
+        # Used as @injectable without arguments
+        return decorator(cls)
+    # Used as @injectable(...) with arguments
+    return decorator
 
 
 def inject(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Mark a function or method for explicit injection.
+    """Resolve type-hinted parameters from the container at call time.
 
-    Currently a pass-through stub — the function is returned unchanged.
-    Future versions will resolve parameters from the container at call time.
+    Parameters that the caller supplies explicitly are left as-is.
+    Only missing arguments whose type annotations match a container
+    registration are resolved automatically.
 
     Args:
-        fn: The function or method to mark for injection.
+        fn: The function or method to wrap.
 
     Returns:
-        The function, unmodified.
+        A wrapper that auto-resolves dependencies before calling *fn*.
 
     Examples:
+        >>> from polinjectum import PolInjectumContainer
+        >>> PolInjectumContainer.reset()
+        >>> container = PolInjectumContainer()
+        >>> container.meet(int, qualifier=None, factory_function=lambda: 42)
         >>> @inject
-        ... def greet(name: str) -> str:
-        ...     return f"Hello, {name}"
-        >>> greet("world")
-        'Hello, world'
+        ... def show_number(n: int) -> str:
+        ...     return str(n)
+        >>> show_number()
+        '42'
     """
-    return fn
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        from polinjectum.polinjectum_container import PolInjectumContainer
+
+        container = PolInjectumContainer()
+        bound = sig.bind_partial(*args, **kwargs)
+        bound.apply_defaults()
+
+        for name, param in sig.parameters.items():
+            if name in bound.arguments:
+                continue
+            if param.annotation is inspect.Parameter.empty:
+                continue
+
+            dep_type = param.annotation
+            key = (dep_type, None)
+            if key in container._registry:
+                kwargs[name] = container.get_me(dep_type)
+
+        return fn(*args, **kwargs)
+
+    return wrapper
