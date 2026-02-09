@@ -38,6 +38,8 @@ That's it. `meet` registers, `get_me` resolves. The container inspects `UserRepo
 
 ## Installation
 
+Install from [PyPI](https://pypi.org/project/polinjectum/):
+
 ```bash
 pip install polinjectum
 ```
